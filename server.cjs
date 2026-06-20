@@ -151,10 +151,27 @@ app.post('/api/send', async (req, res) => {
   }
 });
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log('React Client connected to Socket.io');
+  
+  // בדיקה חסינת-כדורים: האם וואטסאפ מחובר כרגע בדפדפן הנסתר של הענן?
+  try {
+    if (client.info && client.info.me) {
+      whatsappStatus = 'CONNECTED';
+    } else {
+      const state = await client.getState().catch(() => null);
+      if (state === 'CONNECTED') {
+        whatsappStatus = 'CONNECTED';
+      }
+    }
+  } catch (e) {
+    console.log('Error getting live state on connection:', e);
+  }
+
+  // שליחת הסטטוס האמיתי לקליינט שהרגע התחבר
   socket.emit('whatsapp-status', whatsappStatus);
 
+  // רשימת צ'אטים מתוקנת (בלי כפל מפתחות)
   socket.on('fetch-whatsapp-chats', async () => {
     try {
       const chats = await client.getChats();
@@ -163,7 +180,7 @@ io.on('connection', (socket) => {
         name: chat.name || chat.formattedTitle || chat.id.user,
         isGroup: Boolean(chat.isGroup),
         avatar: chat.isGroup ? '👥' : '👤',
-        lastMessage: getMediaPreview(chat.lastMessage) || 'No messages yet',
+        lastMessage: getMediaPreview(chat.lastMessage) || 'אין הודעות עדיין',
         lastMessageTime: chat.lastMessage?.timestamp
           ? new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
           : '',
@@ -195,9 +212,9 @@ io.on('connection', (socket) => {
         io.emit('whatsapp-message-received', {
           id: sentMessage.id?._serialized || `${chatId}-${Date.now()}`,
           chatId,
-          text,
           sender: 'אני',
           senderId: client.info?.me?._serialized || client.info?.me?.user || '',
+          text,
           timestamp: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           isOwn: true,
         });
