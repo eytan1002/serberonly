@@ -29,6 +29,8 @@ const io = new Server(server, {
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
+    // הגדרה קשיחה של נתיב הדפדפן שהורד ב-Render
+    executablePath: '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   },
 });
