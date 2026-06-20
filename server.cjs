@@ -6,21 +6,30 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 
 const app = express();
-app.use(cors());
+
+// 1. עדכון חוקי CORS של Express כדי לקבל בקשות HTTP מכל העולם
+app.use(cors({
+  origin: "*",
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
+
+// 2. עדכון חוקי CORS של Socket.io לפתיחה גלובלית מלאה (החלפת true ב- "*")
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: "*", 
     methods: ['GET', 'POST'],
+    credentials: true
   },
 });
 
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
-    args: ['--no-sandbox'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   },
 });
 
@@ -36,7 +45,6 @@ function getSenderName(msg) {
   if (msg.fromMe) {
     return 'אני';
   }
-
   return msg._data?.notifyName || msg._data?.pushname || msg._data?.sender?.pushname || '';
 }
 
@@ -44,13 +52,11 @@ function getMediaPreview(message) {
   if (!message?.hasMedia) {
     return message?.body || '';
   }
-
   if (message.type === 'image') return message.body || 'Image';
   if (message.type === 'video') return message.body || 'Video';
   if (message.type === 'audio' || message.type === 'ptt') return 'Audio';
   if (message.type === 'document') return message.body || 'Document';
   if (message.type === 'sticker') return 'Sticker';
-
   return message.body || 'Media';
 }
 
@@ -58,10 +64,8 @@ async function getMessageMedia(msg) {
   if (!msg.hasMedia) {
     return null;
   }
-
   try {
     const media = await msg.downloadMedia();
-
     if (!media) {
       return {
         unavailable: true,
@@ -69,7 +73,6 @@ async function getMessageMedia(msg) {
         filename: msg.filename || '',
       };
     }
-
     return {
       mimetype: media.mimetype || msg.mimetype || '',
       data: media.data || '',
@@ -88,7 +91,6 @@ async function getMessageMedia(msg) {
 
 async function mapWhatsappMessage(msg, chatId) {
   const media = await getMessageMedia(msg);
-
   return {
     id: msg.id?._serialized || `${chatId}-${Date.now()}`,
     chatId,
@@ -132,11 +134,9 @@ client.on('message', async (msg) => {
 
 app.post('/api/send', async (req, res) => {
   const { to, message } = req.body;
-
   if (!to || !message) {
     return res.status(400).json({ error: 'Missing "to" or "message" fields' });
   }
-
   try {
     const formattedNumber = to.includes('@c.us') ? to : `${to}@c.us`;
     await client.sendMessage(formattedNumber, message);
@@ -159,7 +159,6 @@ io.on('connection', (socket) => {
         name: chat.name || chat.formattedTitle || chat.id.user,
         isGroup: Boolean(chat.isGroup),
         avatar: chat.isGroup ? '👥' : '👤',
-        lastMessage: chat.lastMessage?.body || 'אין הודעות עדיין',
         lastMessage: getMediaPreview(chat.lastMessage) || 'No messages yet',
         lastMessageTime: chat.lastMessage?.timestamp
           ? new Date(chat.lastMessage.timestamp * 1000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
@@ -177,17 +176,6 @@ io.on('connection', (socket) => {
       const chat = await client.getChatById(chatId);
       const messages = await chat.fetchMessages({ limit: 50 });
       const mapped = await Promise.all(messages.map((msg) => mapWhatsappMessage(msg, chatId)));
-      /*
-        id: msg.id._serialized,
-        chatId: chatId,
-        sender: msg.from || msg._data?.author || 'אני',
-        text: msg.body,
-        timestamp: msg.timestamp
-          ? new Date(msg.timestamp * 1000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
-          : '',
-        isOwn: msg.from === client.info?.me?.user,
-      }));
-      */
       socket.emit('whatsapp-chat-messages', { chatId, messages: mapped });
     } catch (error) {
       console.error('Error fetching messages for chat', chatId, error);
@@ -203,7 +191,6 @@ io.on('connection', (socket) => {
         io.emit('whatsapp-message-received', {
           id: sentMessage.id?._serialized || `${chatId}-${Date.now()}`,
           chatId,
-          sender: client.info?.me?.user || 'אני',
           text,
           sender: 'אני',
           senderId: client.info?.me?._serialized || client.info?.me?.user || '',
@@ -219,6 +206,8 @@ io.on('connection', (socket) => {
 
 client.initialize();
 
-server.listen(5000, '0.0.0.0', () => {
-  console.log('Server is running on port 5000');
+// האזנה לפורט דינמי (חובה בשביל Render) על פני כל הממשקים
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
 });
